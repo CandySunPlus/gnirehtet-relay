@@ -1,6 +1,6 @@
 # Gnirehtet Relay
 
-这个项目 Fork 自开源项目[Genirehtet](https://github.com/Genymobile/gnirehtet) 的 Rust Relay 端。
+这个项目 Fork 自开源项目 [Genirehtet](https://github.com/Genymobile/gnirehtet) 的 Rust Relay 端。
 
 项目结合 `adb` 的 `reverse tethering` ，将主机端的端口映射到 Android 中，Android 结合 VPN 能力，将接管的所有手机流量转发到此端口上。转发服务端连接此端口，并开启基础 `socket`，对 [OSI 模型](https://en.wikipedia.org/wiki/OSI_model)的 3 层（设备端）和 5层（主机端）进行转发，从而实现设备上网。
 
