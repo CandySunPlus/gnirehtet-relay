@@ -2,7 +2,7 @@
 
 这个项目 Fork 自开源项目[Genirehtet](https://github.com/Genymobile/gnirehtet) 的 Rust Relay 端。
 
-项目结合 `adb` 的 `reverse tethering` ，将 Host 的端口映射到 Android 中，Android 结合 VPN 能力，将接管的所有手机流量转发到此端口上。转发服务端连接此端口，并开启基础 `socket`，对 [OSI 模型](https://en.wikipedia.org/wiki/OSI_model)的 3 层（设备端）和 5层（主机端）进行转发，从而实现设备上网。
+项目结合 `adb` 的 `reverse tethering` ，将主机端的端口映射到 Android 中，Android 结合 VPN 能力，将接管的所有手机流量转发到此端口上。转发服务端连接此端口，并开启基础 `socket`，对 [OSI 模型](https://en.wikipedia.org/wiki/OSI_model)的 3 层（设备端）和 5层（主机端）进行转发，从而实现设备上网。
 
 设备的联网行为非常类似 NAT，不过只是通过 `TCP` 连接对一些基础的协议进行了转发，当前项目已支持基于 `IPv4` 的 `TCP`、 `UDP` 和 `ICMP` 协议包的转发功能，但不支持 `IPv6` 的数据转发。
 
@@ -12,7 +12,7 @@
 
 `adb` 目前在 [Android SDK platform tools](https://developer.android.com/studio/releases/platform-tools.html) 中提供，MacOS 可以通过 [Homebrew](https://brew.sh/) 安装 `android-platform-tools` 。
 
-最后，你需要确定连接的 Android 设备已经开启了 `调试模式` 。
+最后，你需要确定连接的 Android 设备已经开启了 `USB 调试模式` 。
 
 # 启动
 
