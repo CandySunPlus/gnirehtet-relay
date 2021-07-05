@@ -45,7 +45,7 @@ pub struct AdbMonitor {
 
 impl AdbMonitor {
     const TRACK_DEVICES_REQUEST: &'static [u8] = b"0012host:track-devices";
-    const BUFFER_SIZE: usize = 1024;
+    const BUFFER_SIZE: usize = 2048;
     const RETRY_DELAY_ADB_DAEMON_OK: u64 = 1000;
     const RETRY_DELAY_ADB_DAEMON_KO: u64 = 5000;
 
