@@ -1,0 +1,7 @@
+# Sample conf.d file for alpine linux
+
+#
+# Specify daemon options here.
+#
+
+rc_ulimit="-n 65535"

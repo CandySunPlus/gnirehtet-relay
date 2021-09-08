@@ -1,0 +1,8 @@
+/var/log/gnirehtetd*.log {
+    copytruncate
+    weekly
+    notifempty
+    missingok
+    rotate 4
+    compress
+}
