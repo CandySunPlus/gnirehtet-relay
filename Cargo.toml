@@ -2,21 +2,21 @@
 name = "gnirehtet"
 version = "2.5.4"
 authors = ["Romain Vimont <rom@rom1v.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "relaylib"
 path = "src/lib.rs"
 
 [dependencies]
-mio = "0.6"       # for async I/O
-slab = "0.4"      # helper for mio Tokens
-log = "0.4"       # for logs
-chrono = "0.4"    # for formatting timestamp in logs
-byteorder = "1.3" # for reading/writing binary
-rand = "0.7"      # for random TCP sequence number
-ctrlc = { version = "3.0", features = ["termination"] }     # for handling Ctrl+C
+mio = "0.6"                                             # for async I/O
+slab = "0.4"                                            # helper for mio Tokens
+log = "0.4"                                             # for logs
+chrono = "0.4"                                          # for formatting timestamp in logs
+byteorder = "1.3"                                       # for reading/writing binary
+rand = "0.7"                                            # for random TCP sequence number
+ctrlc = { version = "3.0", features = ["termination"] } # for handling Ctrl+C
 socket2 = { version = "0.4", features = ["all"] }
 
 [profile.release]
-lto = true     # link-time optimization
+lto = true # link-time optimization
