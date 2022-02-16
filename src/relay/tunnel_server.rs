@@ -101,7 +101,20 @@ impl TunnelServer {
     }
 
     fn remove_client(&mut self, client: &Client) {
-        info!(target: TAG, "Client #{} disconnected", client.id());
+        if let Some(client_serial) = client.client_serial().as_ref() {
+            info!(
+                target: TAG,
+                "Client #{} disconnected, serial {}",
+                client.id(),
+                client_serial
+            );
+        } else {
+            info!(
+                target: TAG,
+                "Client #{} disconnected, serial has not been received yet",
+                client.id(),
+            );
+        }
         let index = self
             .clients
             .iter()

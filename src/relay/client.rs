@@ -23,6 +23,8 @@ use std::mem;
 use std::net::Shutdown;
 use std::rc::Rc;
 
+use crate::byte_buffer::ByteBuffer;
+
 use super::binary;
 use super::close_listener::CloseListener;
 use super::ipv4_packet::{Ipv4Packet, MAX_PACKET_LENGTH};
@@ -47,6 +49,7 @@ pub struct Client {
     pending_packet_sources: Vec<Rc<RefCell<dyn PacketSource>>>,
     // number of remaining bytes of "id" to send to the client before relaying any data
     pending_id_bytes: usize,
+    client_serial: Option<String>,
 }
 
 /// Channel for connections to send back data immediately to the client
@@ -129,6 +132,7 @@ impl Client {
             close_listener,
             pending_packet_sources: Vec::new(),
             pending_id_bytes: 4,
+            client_serial: None,
         }));
 
         {
@@ -149,6 +153,10 @@ impl Client {
 
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    pub fn client_serial(&self) -> Option<String> {
+        self.client_serial.clone()
     }
 
     pub fn router(&mut self) -> &mut Router {
@@ -235,19 +243,47 @@ impl Client {
 
     // return Err(err) with err.kind() == io::ErrorKind::WouldBlock on spurious event
     fn process_receive(&mut self, selector: &mut Selector) -> io::Result<()> {
-        match self.read() {
-            Ok(true) => self.push_to_network(selector),
-            Ok(false) => {
-                debug!(target: TAG, "EOF reached");
-                self.close(selector);
-            }
-            Err(err) => {
-                if err.kind() == io::ErrorKind::WouldBlock {
-                    // rethrow
-                    return Err(err);
+        if self.must_recv_serial() {
+            match self.recv_serial() {
+                Ok(_) => {
+                    if let Some(serial) = self.client_serial.as_ref() {
+                        info!(
+                            target: TAG,
+                            "Client id #{} received device serial {}",
+                            self.id(),
+                            serial
+                        );
+                    }
                 }
-                error!(target: TAG, "Cannot read: [{:?}] {}", err.kind(), err);
-                self.close(selector);
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::WouldBlock {
+                        return Err(err);
+                    }
+                    error!(
+                        target: TAG,
+                        "Cannot receive device serial for client id #{}, [{:?}_{}]",
+                        self.id(),
+                        err.kind(),
+                        err
+                    );
+                    self.close(selector);
+                }
+            }
+        } else {
+            match self.read() {
+                Ok(true) => self.push_to_network(selector),
+                Ok(false) => {
+                    debug!(target: TAG, "EOF reached");
+                    self.close(selector);
+                }
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::WouldBlock {
+                        // rethrow
+                        return Err(err);
+                    }
+                    error!(target: TAG, "Cannot read: [{:?}] {}", err.kind(), err);
+                    self.close(selector);
+                }
             }
         }
         Ok(())
@@ -281,6 +317,20 @@ impl Client {
         let w = self.stream.write(&raw_id[4 - self.pending_id_bytes..])?;
         self.pending_id_bytes -= w;
         Ok(())
+    }
+
+    fn recv_serial(&mut self) -> io::Result<()> {
+        assert!(self.must_recv_serial());
+        let mut buf = ByteBuffer::new(50);
+        buf.read_from(&mut self.stream)?;
+        let serial_buf = buf.peek();
+        match String::from_utf8(serial_buf.to_owned()) {
+            Ok(serial) => {
+                self.client_serial = Some(serial);
+                Ok(())
+            }
+            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+        }
     }
 
     fn update_interests(&mut self, selector: &mut Selector) {
@@ -364,5 +414,9 @@ impl Client {
 
     fn must_send_id(&self) -> bool {
         self.pending_id_bytes > 0
+    }
+
+    fn must_recv_serial(&self) -> bool {
+        self.client_serial.is_none()
     }
 }
