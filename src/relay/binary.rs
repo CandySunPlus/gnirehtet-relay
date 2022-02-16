@@ -48,5 +48,5 @@ pub fn build_packet_string(data: &[u8]) -> String {
 // See <https://github.com/Genymobile/gnirehtet/issues/61#issuecomment-370933770>
 pub fn ptr_data_eq<T: ?Sized>(lhs: *const T, rhs: *const T) -> bool {
     // cast to thin pointers to ignore the vtable part
-    lhs as *const () == rhs as *const ()
+    std::ptr::eq(lhs, rhs)
 }

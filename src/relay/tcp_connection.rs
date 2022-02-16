@@ -41,7 +41,7 @@ const TAG: &str = "TcpConnection";
 // same value as GnirehtetService.MTU in the client
 const MTU: u16 = 0x4000;
 // 20 bytes for IP headers, 20 bytes for TCP headers
-const MAX_PAYLOAD_LENGTH: u16 = MTU - 20 - 20 as u16;
+const MAX_PAYLOAD_LENGTH: u16 = MTU - 20 - 20_u16;
 
 pub struct TcpConnection {
     self_weak: Weak<RefCell<TcpConnection>>,
@@ -378,7 +378,7 @@ impl TcpConnection {
     ) -> io::Result<()> {
         let client_rc = client.upgrade().expect("Expected client not found");
         let mut client = client_rc.borrow_mut();
-        client.send_to_client(selector, &ipv4_packet)
+        client.send_to_client(selector, ipv4_packet)
     }
 
     /// Borrow self.client and send empty packet to it

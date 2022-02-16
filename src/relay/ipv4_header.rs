@@ -111,10 +111,7 @@ macro_rules! ipv4_header_common {
         #[allow(dead_code)]
         impl<'a> $name<'a> {
             pub fn new(raw: $raw_type, data: $data_type) -> Self {
-                Self {
-                    raw: raw,
-                    data: data,
-                }
+                Self { raw, data }
             }
 
             pub fn raw(&self) -> &[u8] {

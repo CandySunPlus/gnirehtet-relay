@@ -23,7 +23,7 @@ use super::{
     transport_header::TransportHeader,
 };
 
-const TAG: &'static str = "IcmpConnection";
+const TAG: &str = "IcmpConnection";
 const IDLE_TIMEOUT_SECONDS: u64 = 2;
 
 pub struct IcmpConnection {

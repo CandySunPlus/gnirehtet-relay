@@ -141,8 +141,8 @@ macro_rules! tcp_header_common {
         impl<'a> $name<'a> {
             pub fn new(raw: $raw_type, data: $data_type) -> Self {
                 Self {
-                    raw: raw,
-                    data: data,
+                    raw,
+                    data,
                 }
             }
 
