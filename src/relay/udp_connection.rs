@@ -107,7 +107,7 @@ impl UdpConnection {
         match self.process(selector, event) {
             Ok(_) => (),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                cx_debug!(target: TAG, self.id, "Spurious event, ignoring")
+                cx_debug!(target: TAG, self.id, "Spurious event, ignoring");
             }
             Err(_) => panic!("Unexpected unhandled error"),
         }
@@ -145,7 +145,7 @@ impl UdpConnection {
         match self.write() {
             Ok(_) => (),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                cx_debug!(target: TAG, self.id, "Spurious event, ignoring")
+                cx_debug!(target: TAG, self.id, "Spurious event, ignoring");
             }
             Err(err) => {
                 if err.kind() == io::ErrorKind::WouldBlock {
@@ -210,7 +210,9 @@ impl UdpConnection {
                     );
                 }
             }
-            Err(_) => cx_warn!(target: TAG, self.id, "Cannot send to client, drop packet"),
+            Err(_) => {
+                cx_warn!(target: TAG, self.id, "Cannot send to client, drop packet");
+            }
         }
         Ok(())
     }
@@ -259,12 +261,14 @@ impl Connection for UdpConnection {
             Ok(_) => {
                 self.update_interests(selector);
             }
-            Err(err) => cx_warn!(
-                target: TAG,
-                self.id,
-                "Cannot send to network, drop packet: {}",
-                err
-            ),
+            Err(err) => {
+                cx_warn!(
+                    target: TAG,
+                    self.id,
+                    "Cannot send to network, drop packet: {}",
+                    err
+                );
+            }
         }
     }
 

@@ -211,7 +211,7 @@ impl TcpConnection {
         match self.process(selector, event) {
             Ok(_) => (),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                cx_debug!(target: TAG, self.id, "Spurious event, ignoring")
+                cx_debug!(target: TAG, self.id, "Spurious event, ignoring");
             }
             Err(_) => panic!("Unexpected unhandled error"),
         }

@@ -98,7 +98,7 @@ impl IcmpConnection {
         match self.process(selector, event) {
             Ok(_) => (),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                cx_debug!(target: TAG, self.id, "Spurious event, ignoring")
+                cx_debug!(target: TAG, self.id, "Spurious event, ignoring");
             }
             Err(_) => panic!("Unexpected unhandled error"),
         }
@@ -204,7 +204,9 @@ impl IcmpConnection {
                     );
                 }
             }
-            Err(_) => cx_warn!(target: TAG, self.id, "Cannot send to client, drop packet"),
+            Err(_) => {
+                cx_warn!(target: TAG, self.id, "Cannot send to client, drop packet");
+            }
         }
         Ok(())
     }
@@ -262,7 +264,7 @@ impl Connection for IcmpConnection {
             self.client_to_network.read_from(payload);
             self.update_interests(selector);
         } else {
-            cx_warn!(target: TAG, self.id, "Cannot send to network, drop packet")
+            cx_warn!(target: TAG, self.id, "Cannot send to network, drop packet");
         }
     }
 

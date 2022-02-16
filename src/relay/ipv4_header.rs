@@ -28,6 +28,7 @@ pub struct Ipv4HeaderMut<'a> {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Ipv4HeaderData {
     version: u8,
     header_length: u8,
