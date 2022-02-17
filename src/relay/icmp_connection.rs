@@ -1,6 +1,7 @@
 use log::*;
-use mio::{Event, PollOpt};
-use mio::{Ready, Token};
+use mio::event::Event;
+use mio::Interest;
+use mio::Token;
 use std::cell::RefCell;
 use std::io;
 use std::net::IpAddr;
@@ -29,7 +30,7 @@ const IDLE_TIMEOUT_SECONDS: u64 = 2;
 pub struct IcmpConnection {
     id: ConnectionId,
     client: Weak<RefCell<Client>>,
-    interests: Ready,
+    interests: Interest,
     socket: IcmpSocket,
     token: Token,
     client_to_network: StreamBuffer,
@@ -48,7 +49,7 @@ impl IcmpConnection {
     ) -> io::Result<Rc<RefCell<Self>>> {
         cx_info!(target: TAG, id, "Open");
 
-        let interests = Ready::readable();
+        let interests = Interest::READABLE;
         let packetizer = Packetizer::new(&ipv4_header, &transport_header);
         let socket = Self::create_socket(&id)?;
 
@@ -69,10 +70,10 @@ impl IcmpConnection {
 
             let rc2 = rc.clone();
             // must annotate selector type: https://stackoverflow.com/a/44004103/1987178
-            let handler =
-                move |selector: &mut Selector, event| rc2.borrow_mut().on_ready(selector, event);
-            let token =
-                selector.register(&self_ref.socket, handler, interests, PollOpt::level())?;
+            let handler = move |selector: &mut Selector, event: &Event| {
+                rc2.borrow_mut().on_ready(selector, event)
+            };
+            let token = selector.register(&mut self_ref.socket, handler, interests)?;
             self_ref.token = token;
         }
         Ok(rc)
@@ -94,7 +95,7 @@ impl IcmpConnection {
         client.router().remove(self);
     }
 
-    fn on_ready(&mut self, selector: &mut Selector, event: Event) {
+    fn on_ready(&mut self, selector: &mut Selector, event: &Event) {
         match self.process(selector, event) {
             Ok(_) => (),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -104,23 +105,22 @@ impl IcmpConnection {
         }
     }
 
-    fn process(&mut self, selector: &mut Selector, event: Event) -> io::Result<()> {
+    fn process(&mut self, selector: &mut Selector, event: &Event) -> io::Result<()> {
         if !self.closed {
             self.touch();
-            let ready = event.readiness();
             cx_debug!(
                 target: TAG,
                 self.id,
                 "connection in process R:{}::W:{}::C:{}",
-                ready.is_readable(),
-                ready.is_writable(),
+                event.is_readable(),
+                event.is_writable(),
                 self.closed
             );
-            if ready.is_readable() || ready.is_writable() {
-                if ready.is_writable() {
+            if event.is_readable() || event.is_writable() {
+                if event.is_writable() {
                     self.process_send(selector)?;
                 }
-                if !self.closed && ready.is_readable() {
+                if !self.closed && event.is_readable() {
                     self.process_receive(selector)?;
                 }
                 if !self.closed {
@@ -218,9 +218,9 @@ impl IcmpConnection {
 
     fn update_interests(&mut self, selector: &mut Selector) {
         let ready = if self.client_to_network.is_empty() {
-            Ready::readable()
+            Interest::READABLE
         } else {
-            Ready::readable() | Ready::writable()
+            Interest::READABLE.add(Interest::WRITABLE)
         };
         if self.interests != ready {
             cx_debug!(
@@ -232,7 +232,7 @@ impl IcmpConnection {
             );
             self.interests = ready;
             selector
-                .reregister(&self.socket, self.token, ready, PollOpt::level())
+                .reregister(&mut self.socket, self.token, ready)
                 .expect("Cannot register on poll");
         }
     }
@@ -271,7 +271,7 @@ impl Connection for IcmpConnection {
     fn close(&mut self, selector: &mut Selector) {
         cx_info!(target: TAG, self.id, "Close");
         self.closed = true;
-        if let Err(err) = selector.deregister(&self.socket, self.token) {
+        if let Err(err) = selector.deregister(&mut self.socket, self.token) {
             cx_warn!(
                 target: TAG,
                 self.id,

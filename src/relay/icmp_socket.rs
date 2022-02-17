@@ -1,25 +1,19 @@
-use std::borrow::BorrowMut;
-use std::intrinsics::transmute;
 /**
  * The ICMP socket
  *
  * only impl ICMP_ECHO and ICMP_ECHO_REPLY methods .
  *
  */
-use std::io;
-use std::io::Read;
-use std::io::Write;
-use std::net::IpAddr;
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, SocketAddr};
 
-use mio::Evented;
+use mio::{event, Interest, Registry, Token};
 use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
 use socket2::Type;
 
-pub struct IcmpSocket(Socket, SelectorId);
+pub struct IcmpSocket(Socket);
 
 impl IcmpSocket {
     pub fn bind(ip: IpAddr) -> io::Result<IcmpSocket> {
@@ -36,7 +30,7 @@ impl IcmpSocket {
             socket
                 .set_nonblocking(true)
                 .expect("socket set non blocking failed");
-            IcmpSocket(socket, SelectorId::new())
+            IcmpSocket(socket)
         })
     }
 
@@ -56,146 +50,139 @@ impl Write for IcmpSocket {
 }
 
 impl Read for IcmpSocket {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
         let mut bytes = vec![0u8; 512];
         let mut size = self.0.read(&mut bytes)?;
         // Drop IPV4 Header
-        size = buf.borrow_mut().write(&bytes[20..size])?;
+        size = buf.write(&bytes[20..size])?;
         Ok(size)
     }
 }
 
 #[cfg(unix)]
-use mio::unix::EventedFd;
-use mio::Poll;
-#[cfg(windows)]
-use miow::iocp::{CompletionPort, CompletionStatus};
+use mio::unix::SourceFd;
 #[cfg(unix)]
-use std::os::unix::io::{AsRawFd, RawFd};
-#[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket, RawSocket};
-#[cfg(windows)]
-use std::sync::{Arc, Mutex};
+use std::os::unix::io::AsRawFd;
 
 #[cfg(unix)]
-impl Evented for IcmpSocket {
+impl event::Source for IcmpSocket {
     fn register(
-        &self,
-        poll: &Poll,
-        token: mio::Token,
-        interest: mio::Ready,
-        opts: mio::PollOpt,
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
     ) -> io::Result<()> {
-        self.1.associate_selector(poll)?;
-        EventedFd(&self.0.as_raw_fd()).register(poll, token, interest, opts)
+        SourceFd(&self.0.as_raw_fd()).register(registry, token, interests)
     }
+
     fn reregister(
-        &self,
-        poll: &Poll,
-        token: mio::Token,
-        interest: mio::Ready,
-        opts: mio::PollOpt,
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
     ) -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).reregister(poll, token, interest, opts)
+        SourceFd(&self.0.as_raw_fd()).reregister(registry, token, interests)
     }
-    fn deregister(&self, poll: &Poll) -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).deregister(poll)
-    }
-}
 
-#[cfg(any(
-    target_os = "bitrig",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "netbsd",
-    target_os = "openbsd"
-))]
-
-#[allow(dead_code)]
-struct Selector {
-    id: usize,
-    kq: RawFd,
-}
-
-#[cfg(any(
-    target_os = "android",
-    target_os = "illumos",
-    target_os = "linux",
-    target_os = "solaris"
-))]
-#[allow(dead_code)]
-struct Selector {
-    id: usize,
-    epfd: RawFd,
-}
-
-#[cfg(unix)]
-impl Selector {
-    pub fn id(&self) -> usize {
-        self.id
+    fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> {
+        SourceFd(&self.0.as_raw_fd()).deregister(registry)
     }
 }
 
-#[cfg(windows)]
-struct BufferPool {
-    pool: Vec<Vec<u8>>,
-}
+// #[cfg(any(
+//     target_os = "bitrig",
+//     target_os = "dragonfly",
+//     target_os = "freebsd",
+//     target_os = "ios",
+//     target_os = "macos",
+//     target_os = "netbsd",
+//     target_os = "openbsd"
+// ))]
+// #[allow(dead_code)]
+// struct Selector {
+//     id: usize,
+//     kq: RawFd,
+// }
 
-#[cfg(windows)]
-struct SelectorInner {
-    id: usize,
-    port: CompletionPort,
-    buffers: Mutex<BufferPool>,
-}
-#[cfg(windows)]
-struct Selector {
-    inner: Arc<SelectorInner>,
-}
+// #[cfg(any(
+//     target_os = "android",
+//     target_os = "illumos",
+//     target_os = "linux",
+//     target_os = "solaris"
+// ))]
+// #[allow(dead_code)]
+// struct Selector {
+//     id: usize,
+//     epfd: RawFd,
+// }
 
-#[cfg(windows)]
-impl Selector {
-    pub fn id(&self) -> usize {
-        self.inner.id
-    }
-}
+// #[cfg(unix)]
+// impl Selector {
+//     pub fn id(&self) -> usize {
+//         self.id
+//     }
+// }
 
-struct ExPoll {
-    pub selector: Selector,
-}
+// #[cfg(windows)]
+// struct BufferPool {
+//     pool: Vec<Vec<u8>>,
+// }
 
-#[derive(Debug)]
-struct SelectorId {
-    id: AtomicUsize,
-}
+// #[cfg(windows)]
+// struct SelectorInner {
+//     id: usize,
+//     port: CompletionPort,
+//     buffers: Mutex<BufferPool>,
+// }
+// #[cfg(windows)]
+// struct Selector {
+//     inner: Arc<SelectorInner>,
+// }
 
-impl SelectorId {
-    pub fn new() -> SelectorId {
-        SelectorId {
-            id: AtomicUsize::new(0),
-        }
-    }
+// #[cfg(windows)]
+// impl Selector {
+//     pub fn id(&self) -> usize {
+//         self.inner.id
+//     }
+// }
 
-    pub fn associate_selector(&self, poll: &Poll) -> io::Result<()> {
-        let selector_id = self.id.load(Ordering::SeqCst);
-        let poll_exposed: &ExPoll = unsafe { transmute(poll) };
-        if selector_id != 0 && selector_id != poll_exposed.selector.id() {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "socket already registered",
-            ))
-        } else {
-            self.id.store(poll_exposed.selector.id(), Ordering::SeqCst);
-            Ok(())
-        }
-    }
-}
+// struct ExRegistry {
+//     pub selector: Selector
+// }
 
-impl Clone for SelectorId {
-    fn clone(&self) -> SelectorId {
-        SelectorId {
-            id: AtomicUsize::new(self.id.load(Ordering::SeqCst)),
-        }
-    }
-}
+// #[derive(Debug)]
+// struct SelectorId {
+//     id: AtomicUsize,
+// }
+
+// impl SelectorId {
+//     pub fn new() -> SelectorId {
+//         SelectorId {
+//             id: AtomicUsize::new(0),
+//         }
+//     }
+
+//     pub fn associate_selector(&self, registry: &Registry) -> io::Result<()> {
+//         let registry_exposed
+//         let registry_id = registry.selector().id();
+//         let poll_exposed: &ExPoll = unsafe { transmute(poll) };
+//         let selector_id = self.id.load(Ordering::SeqCst);
+//         if selector_id != 0 && selector_id != poll_exposed.selector.id() {
+//             Err(io::Error::new(
+//                 io::ErrorKind::Other,
+//                 "socket already registered",
+//             ))
+//         } else {
+//             self.id.store(poll_exposed.selector.id(), Ordering::SeqCst);
+//             Ok(())
+//         }
+//     }
+// }
+
+// impl Clone for SelectorId {
+//     fn clone(&self) -> SelectorId {
+//         SelectorId {
+//             id: AtomicUsize::new(self.id.load(Ordering::SeqCst)),
+//         }
+//     }
+// }

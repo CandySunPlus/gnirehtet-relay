@@ -15,8 +15,9 @@
  */
 
 use log::*;
+use mio::event::Event;
 use mio::net::UdpSocket;
-use mio::{Event, PollOpt, Ready, Token};
+use mio::{Interest, Token};
 use std::cell::RefCell;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -41,7 +42,7 @@ pub struct UdpConnection {
     id: ConnectionId,
     client: Weak<RefCell<Client>>,
     socket: UdpSocket,
-    interests: Ready,
+    interests: Interest,
     token: Token,
     client_to_network: DatagramBuffer,
     network_to_client: Packetizer,
@@ -61,7 +62,7 @@ impl UdpConnection {
         cx_info!(target: TAG, id, "Open");
         let socket = Self::create_socket(&id)?;
         let packetizer = Packetizer::new(&ipv4_header, &transport_header);
-        let interests = Ready::readable();
+        let interests = Interest::READABLE;
         let rc = Rc::new(RefCell::new(Self {
             id,
             client,
@@ -79,10 +80,10 @@ impl UdpConnection {
 
             let rc2 = rc.clone();
             // must anotate selector type: https://stackoverflow.com/a/44004103/1987178
-            let handler =
-                move |selector: &mut Selector, event| rc2.borrow_mut().on_ready(selector, event);
-            let token =
-                selector.register(&self_ref.socket, handler, interests, PollOpt::level())?;
+            let handler = move |selector: &mut Selector, event: &Event| {
+                rc2.borrow_mut().on_ready(selector, event)
+            };
+            let token = selector.register(&mut self_ref.socket, handler, interests)?;
             self_ref.token = token;
         }
         Ok(rc)
@@ -90,7 +91,7 @@ impl UdpConnection {
 
     fn create_socket(id: &ConnectionId) -> io::Result<UdpSocket> {
         let autobind_addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0);
-        let udp_socket = UdpSocket::bind(&autobind_addr)?;
+        let udp_socket = UdpSocket::bind(autobind_addr)?;
         udp_socket.connect(id.rewritten_destination().into())?;
         Ok(udp_socket)
     }
@@ -102,7 +103,7 @@ impl UdpConnection {
         client.router().remove(self);
     }
 
-    fn on_ready(&mut self, selector: &mut Selector, event: Event) {
+    fn on_ready(&mut self, selector: &mut Selector, event: &Event) {
         #[allow(clippy::match_wild_err_arm)]
         match self.process(selector, event) {
             Ok(_) => (),
@@ -114,15 +115,14 @@ impl UdpConnection {
     }
 
     // return Err(err) with err.kind() == io::ErrorKind::WouldBlock on spurious event
-    fn process(&mut self, selector: &mut Selector, event: Event) -> io::Result<()> {
+    fn process(&mut self, selector: &mut Selector, event: &Event) -> io::Result<()> {
         if !self.closed {
             self.touch();
-            let ready = event.readiness();
-            if ready.is_readable() || ready.is_writable() {
-                if ready.is_writable() {
+            if event.is_readable() || event.is_writable() {
+                if event.is_writable() {
                     self.process_send(selector)?;
                 }
-                if !self.closed && ready.is_readable() {
+                if !self.closed && event.is_readable() {
                     self.process_receive(selector)?;
                 }
                 if !self.closed {
@@ -223,17 +223,17 @@ impl UdpConnection {
     }
 
     fn update_interests(&mut self, selector: &mut Selector) {
-        let ready = if self.client_to_network.is_empty() {
-            Ready::readable()
+        let interests = if self.client_to_network.is_empty() {
+            Interest::READABLE
         } else {
-            Ready::readable() | Ready::writable()
+            Interest::READABLE.add(Interest::WRITABLE)
         };
-        cx_debug!(target: TAG, self.id, "interests: {:?}", ready);
-        if self.interests != ready {
+        cx_debug!(target: TAG, self.id, "interests: {:?}", interests);
+        if self.interests != interests {
             // interests must be changed
-            self.interests = ready;
+            self.interests = interests;
             selector
-                .reregister(&self.socket, self.token, ready, PollOpt::level())
+                .reregister(&mut self.socket, self.token, interests)
                 .expect("Cannot register on poll");
         }
     }
@@ -275,7 +275,7 @@ impl Connection for UdpConnection {
     fn close(&mut self, selector: &mut Selector) {
         cx_info!(target: TAG, self.id, "Close");
         self.closed = true;
-        if let Err(err) = selector.deregister(&self.socket, self.token) {
+        if let Err(err) = selector.deregister(&mut self.socket, self.token) {
             // do not panic, this can happen in mio
             // see <https://github.com/Genymobile/gnirehtet/issues/136>
             cx_warn!(

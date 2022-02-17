@@ -15,8 +15,7 @@
  */
 
 use log::*;
-use mio::net::TcpStream;
-use mio::{Event, PollOpt, Ready, Token};
+use mio::{event::Event, net::TcpStream, Interest, Token};
 use std::cell::RefCell;
 use std::io::{self, Write};
 use std::mem;
@@ -39,7 +38,7 @@ const TAG: &str = "Client";
 pub struct Client {
     id: u32,
     stream: TcpStream,
-    interests: Ready,
+    interests: Interest,
     token: Token,
     client_to_network: Ipv4PacketBuffer,
     network_to_client: StreamBuffer,
@@ -55,17 +54,17 @@ pub struct Client {
 /// Channel for connections to send back data immediately to the client
 pub struct ClientChannel<'a> {
     network_to_client: &'a mut StreamBuffer,
-    stream: &'a TcpStream,
+    stream: &'a mut TcpStream,
     token: Token,
-    interests: &'a mut Ready,
+    interests: &'a mut Interest,
 }
 
 impl<'a> ClientChannel<'a> {
     fn new(
         network_to_client: &'a mut StreamBuffer,
-        stream: &'a TcpStream,
+        stream: &'a mut TcpStream,
         token: Token,
-        interests: &'a mut Ready,
+        interests: &'a mut Interest,
     ) -> Self {
         Self {
             network_to_client,
@@ -96,16 +95,16 @@ impl<'a> ClientChannel<'a> {
     }
 
     fn update_interests(&mut self, selector: &mut Selector) {
-        let ready = if self.network_to_client.is_empty() {
-            Ready::readable()
+        let interests = if self.network_to_client.is_empty() {
+            Interest::READABLE
         } else {
-            Ready::readable() | Ready::writable()
+            Interest::READABLE.add(Interest::WRITABLE)
         };
-        if *self.interests != ready {
+        if *self.interests != interests {
             // interests must be changed
-            *self.interests = ready;
+            *self.interests = interests;
             selector
-                .reregister(self.stream, self.token, ready, PollOpt::level())
+                .reregister(self.stream, self.token, interests)
                 .expect("Cannot register on poll");
         }
     }
@@ -119,7 +118,7 @@ impl Client {
         close_listener: Box<dyn CloseListener<Client>>,
     ) -> io::Result<Rc<RefCell<Self>>> {
         // on start, we are interested only in writing (we must first send the client id)
-        let interests = Ready::writable();
+        let interests = Interest::WRITABLE;
         let rc = Rc::new(RefCell::new(Self {
             id,
             stream,
@@ -142,10 +141,10 @@ impl Client {
 
             let rc2 = rc.clone();
             // must anotate selector type: https://stackoverflow.com/a/44004103/1987178
-            let handler =
-                move |selector: &mut Selector, event| rc2.borrow_mut().on_ready(selector, event);
-            let token =
-                selector.register(&self_ref.stream, handler, interests, PollOpt::level())?;
+            let handler = move |selector: &mut Selector, event: &Event| {
+                rc2.borrow_mut().on_ready(selector, event)
+            };
+            let token = selector.register(&mut self_ref.stream, handler, interests)?;
             self_ref.token = token;
         }
         Ok(rc)
@@ -166,7 +165,7 @@ impl Client {
     pub fn channel(&mut self) -> ClientChannel {
         ClientChannel::new(
             &mut self.network_to_client,
-            &self.stream,
+            &mut self.stream,
             self.token,
             &mut self.interests,
         )
@@ -174,7 +173,7 @@ impl Client {
 
     fn close(&mut self, selector: &mut Selector) {
         self.closed = true;
-        selector.deregister(&self.stream, self.token).unwrap();
+        selector.deregister(&mut self.stream, self.token).unwrap();
         // shutdown only (there is no close), the socket will be closed on drop
         if self.stream.shutdown(Shutdown::Both).is_err() {
             warn!(target: TAG, "Cannot shutdown client socket");
@@ -183,7 +182,7 @@ impl Client {
         self.close_listener.on_closed(self);
     }
 
-    fn on_ready(&mut self, selector: &mut Selector, event: Event) {
+    fn on_ready(&mut self, selector: &mut Selector, event: &Event) {
         #[allow(clippy::match_wild_err_arm)]
         match self.process(selector, event) {
             Ok(_) => (),
@@ -195,13 +194,12 @@ impl Client {
     }
 
     // return Err(err) with err.kind() == io::ErrorKind::WouldBlock on spurious event
-    fn process(&mut self, selector: &mut Selector, event: Event) -> io::Result<()> {
+    fn process(&mut self, selector: &mut Selector, event: &Event) -> io::Result<()> {
         if !self.closed {
-            let ready = event.readiness();
-            if ready.is_writable() {
+            if event.is_writable() {
                 self.process_send(selector)?;
             }
-            if !self.closed && ready.is_readable() {
+            if !self.closed && event.is_readable() {
                 self.process_receive(selector)?;
             }
             if !self.closed {
@@ -364,7 +362,7 @@ impl Client {
             Some(ref packet) => {
                 let mut client_channel = ClientChannel::new(
                     &mut self.network_to_client,
-                    &self.stream,
+                    &mut self.stream,
                     self.token,
                     &mut self.interests,
                 );

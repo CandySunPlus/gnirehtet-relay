@@ -15,7 +15,8 @@
  */
 
 use log::*;
-use mio::{Event, Evented, Events, Poll, PollOpt, Ready, Token};
+use mio::event::{self, Event};
+use mio::{Events, Interest, Poll, Token};
 use slab::Slab;
 use std::io;
 use std::rc::Rc;
@@ -24,14 +25,14 @@ use std::time::Duration;
 const TAG: &str = "Selector";
 
 pub trait EventHandler {
-    fn on_ready(&self, selector: &mut Selector, event: Event);
+    fn on_ready(&self, selector: &mut Selector, event: &Event);
 }
 
 impl<F> EventHandler for F
 where
-    F: Fn(&mut Selector, Event),
+    F: Fn(&mut Selector, &Event),
 {
-    fn on_ready(&self, selector: &mut Selector, event: Event) {
+    fn on_ready(&self, selector: &mut Selector, event: &Event) {
         self(selector, event);
     }
 }
@@ -54,17 +55,16 @@ impl Selector {
 
     pub fn register<E, H>(
         &mut self,
-        handle: &E,
+        handle: &mut E,
         handler: H,
-        interest: Ready,
-        opts: PollOpt,
+        interest: Interest,
     ) -> io::Result<Token>
     where
-        E: Evented + ?Sized,
+        E: event::Source + ?Sized,
         H: EventHandler + 'static,
     {
         let token = Token(self.handlers.insert(Rc::new(handler)));
-        if let Err(err) = self.poll.register(handle, token, interest, opts) {
+        if let Err(err) = self.poll.registry().register(handle, token, interest) {
             // remove the token we just added
             self.handlers.remove(token.0);
             Err(err)
@@ -75,22 +75,21 @@ impl Selector {
 
     pub fn reregister<E>(
         &mut self,
-        handle: &E,
+        handle: &mut E,
         token: Token,
-        interest: Ready,
-        opts: PollOpt,
+        interest: Interest,
     ) -> io::Result<()>
     where
-        E: Evented + ?Sized,
+        E: event::Source + ?Sized,
     {
-        self.poll.reregister(handle, token, interest, opts)
+        self.poll.registry().reregister(handle, token, interest)
     }
 
-    pub fn deregister<E>(&mut self, handle: &E, token: Token) -> io::Result<()>
+    pub fn deregister<E>(&mut self, handle: &mut E, token: Token) -> io::Result<()>
     where
-        E: Evented + ?Sized,
+        E: event::Source + ?Sized,
     {
-        self.poll.deregister(handle)?;
+        self.poll.registry().deregister(handle)?;
         // remove them before next poll()
         self.tokens_to_remove.push(token);
         Ok(())
@@ -103,7 +102,7 @@ impl Selector {
         self.tokens_to_remove.clear();
     }
 
-    pub fn poll(&mut self, events: &mut Events, timeout: Option<Duration>) -> io::Result<usize> {
+    pub fn poll(&mut self, events: &mut Events, timeout: Option<Duration>) -> io::Result<()> {
         self.poll.poll(events, timeout)
     }
 

@@ -15,8 +15,7 @@
  */
 
 use log::*;
-use mio::net::TcpStream;
-use mio::{Event, PollOpt, Ready, Token};
+use mio::{event::Event, net::TcpStream, Interest, Token};
 use rand::random;
 use std::cell::RefCell;
 use std::cmp;
@@ -48,7 +47,7 @@ pub struct TcpConnection {
     id: ConnectionId,
     client: Weak<RefCell<Client>>,
     stream: TcpStream,
-    interests: Ready,
+    interests: Interest,
     token: Token,
     client_to_network: StreamBuffer,
     network_to_client: Packetizer,
@@ -163,7 +162,7 @@ impl TcpConnection {
 
         // interests will be set on the first packet received
         // set the initial value now so that they won't need to be updated
-        let interests = Ready::writable();
+        let interests = Interest::WRITABLE;
         let rc = Rc::new(RefCell::new(Self {
             self_weak: Weak::new(),
             id,
@@ -186,17 +185,17 @@ impl TcpConnection {
 
             let rc2 = rc.clone();
             // must annotate selector type: https://stackoverflow.com/a/44004103/1987178
-            let handler =
-                move |selector: &mut Selector, event| rc2.borrow_mut().on_ready(selector, event);
-            let token =
-                selector.register(&self_ref.stream, handler, interests, PollOpt::level())?;
+            let handler = move |selector: &mut Selector, event: &Event| {
+                rc2.borrow_mut().on_ready(selector, event)
+            };
+            let token = selector.register(&mut self_ref.stream, handler, interests)?;
             self_ref.token = token;
         }
         Ok(rc)
     }
 
     fn create_stream(id: &ConnectionId) -> io::Result<TcpStream> {
-        TcpStream::connect(&id.rewritten_destination().into())
+        TcpStream::connect(id.rewritten_destination().into())
     }
 
     fn remove_from_router(&self) {
@@ -206,7 +205,7 @@ impl TcpConnection {
         client.router().remove(self);
     }
 
-    fn on_ready(&mut self, selector: &mut Selector, event: Event) {
+    fn on_ready(&mut self, selector: &mut Selector, event: &Event) {
         #[allow(clippy::match_wild_err_arm)]
         match self.process(selector, event) {
             Ok(_) => (),
@@ -217,11 +216,10 @@ impl TcpConnection {
         }
     }
     // return Err(err) with err.kind() == io::ErrorKind::WouldBlock on spurious event
-    fn process(&mut self, selector: &mut Selector, event: Event) -> io::Result<()> {
+    fn process(&mut self, selector: &mut Selector, event: &Event) -> io::Result<()> {
         if !self.closed {
-            let ready = event.readiness();
-            if ready.is_readable() || ready.is_writable() {
-                if ready.is_writable() {
+            if event.is_readable() || event.is_writable() {
+                if event.is_writable() {
                     if self.tcb.state == TcpState::SynSent {
                         // writable is first triggered when the stream is connected
                         self.process_connect(selector);
@@ -229,14 +227,14 @@ impl TcpConnection {
                         self.process_send(selector)?;
                     }
                 }
-                if !self.closed && ready.is_readable() {
+                if !self.closed && event.is_readable() {
                     self.process_receive(selector)?;
                 }
                 if !self.closed {
                     self.update_interests(selector);
                 }
             } else {
-                cx_debug!(target: TAG, self.id, "received ready = {:?}", ready);
+                cx_debug!(target: TAG, self.id, "received ready = {:?}", event);
                 // error or hup
                 self.close(selector);
             }
@@ -732,24 +730,24 @@ impl TcpConnection {
 
     fn update_interests(&mut self, selector: &mut Selector) {
         assert!(!self.closed);
-        let mut ready = Ready::empty();
+        let mut interests = self.interests;
         if self.tcb.state == TcpState::SynSent {
             // waiting for connectable
-            ready = Ready::writable()
+            interests = Interest::WRITABLE
         } else {
             if self.may_read() {
-                ready |= Ready::readable()
+                interests.add(Interest::READABLE);
             }
             if self.may_write() {
-                ready |= Ready::writable()
+                interests.add(Interest::WRITABLE);
             }
         }
-        cx_debug!(target: TAG, self.id, "interests: {:?}", ready);
-        if self.interests != ready {
+        cx_debug!(target: TAG, self.id, "interests: {:?}", interests);
+        if self.interests != interests {
             // interests must be changed
-            self.interests = ready;
+            self.interests = interests;
             selector
-                .reregister(&self.stream, self.token, ready, PollOpt::level())
+                .reregister(&mut self.stream, self.token, interests)
                 .expect("Cannot register on poll");
         }
     }
@@ -790,7 +788,7 @@ impl Connection for TcpConnection {
     fn close(&mut self, selector: &mut Selector) {
         cx_info!(target: TAG, self.id, "Close");
         self.closed = true;
-        if let Err(err) = selector.deregister(&self.stream, self.token) {
+        if let Err(err) = selector.deregister(&mut self.stream, self.token) {
             // do not panic, this can happen in mio
             // see <https://github.com/Genymobile/gnirehtet/issues/136>
             cx_warn!(

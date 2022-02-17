@@ -15,8 +15,7 @@
  */
 
 use log::*;
-use mio::net::TcpListener;
-use mio::{Event, PollOpt, Ready};
+use mio::{event::Event, net::TcpListener, Interest};
 use std::cell::RefCell;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -50,13 +49,13 @@ impl TunnelServer {
 
         let rc2 = rc.clone();
         // must anotate selector type: https://stackoverflow.com/a/44004103/1987178
-        let handler =
-            move |selector: &mut Selector, event| rc2.borrow_mut().on_ready(selector, event);
+        let handler = move |selector: &mut Selector, event: &Event| {
+            rc2.borrow_mut().on_ready(selector, event)
+        };
         selector.register(
-            &rc.borrow().tcp_listener,
+            &mut rc.borrow_mut().tcp_listener,
             handler,
-            Ready::readable(),
-            PollOpt::edge(),
+            Interest::READABLE,
         )?;
         Ok(rc)
     }
@@ -64,11 +63,11 @@ impl TunnelServer {
     fn start_socket(port: u16) -> io::Result<TcpListener> {
         let localhost = Ipv4Addr::new(127, 0, 0, 1).into();
         let addr = SocketAddr::new(localhost, port);
-        let server = TcpListener::bind(&addr)?;
+        let server = TcpListener::bind(addr)?;
         Ok(server)
     }
 
-    fn on_ready(&mut self, selector: &mut Selector, _: Event) {
+    fn on_ready(&mut self, selector: &mut Selector, _: &Event) {
         match self.accept_client(selector) {
             Ok(_) => debug!(target: TAG, "New client accepted"),
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
