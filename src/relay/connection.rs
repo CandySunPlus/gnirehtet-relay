@@ -48,6 +48,7 @@ pub struct ConnectionId {
     destination_ip: u32,
     destination_port: u16,
     id_string: String,
+    client_string: Option<String>,
 }
 
 impl ConnectionId {
@@ -71,11 +72,16 @@ impl ConnectionId {
             destination_ip,
             destination_port,
             id_string,
+            client_string: None,
         }
     }
 
     pub fn protocol(&self) -> Protocol {
         self.protocol
+    }
+
+    pub fn set_client_string(&mut self, client_string: Option<String>) {
+        self.client_string = client_string;
     }
 
     pub fn rewritten_destination(&self) -> SocketAddrV4 {
@@ -90,7 +96,11 @@ impl ConnectionId {
 
 impl fmt::Display for ConnectionId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.id_string)
+        if let Some(client_string) = self.client_string.as_ref() {
+            write!(f, "[{}] {}", client_string, self.id_string)
+        } else {
+            write!(f, "[UNKNOWN_CLINET] {}", self.id_string)
+        }
     }
 }
 

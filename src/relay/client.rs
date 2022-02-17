@@ -322,14 +322,21 @@ impl Client {
     fn recv_serial(&mut self) -> io::Result<()> {
         assert!(self.must_recv_serial());
         let mut buf = ByteBuffer::new(50);
+        let id = self.id();
         buf.read_from(&mut self.stream)?;
         let serial_buf = buf.peek();
+
         match String::from_utf8(serial_buf.to_owned()) {
             Ok(serial) => {
-                self.client_serial = Some(serial);
+                self.client_serial = Some(serial.clone());
+                self.router()
+                    .set_client_string(format!("#{}:<{}>", id, &serial));
                 Ok(())
             }
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e) => {
+                self.router().set_client_string(format!("#{}:<None>", id));
+                Err(io::Error::new(io::ErrorKind::Other, e))
+            }
         }
     }
 

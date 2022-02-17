@@ -46,7 +46,8 @@ pub fn build_packet_string(data: &[u8]) -> String {
 // for some (buggy) reason, the vtable part may be different even if the data reference the same
 // object
 // See <https://github.com/Genymobile/gnirehtet/issues/61#issuecomment-370933770>
+#[allow(clippy::ptr_eq)]
 pub fn ptr_data_eq<T: ?Sized>(lhs: *const T, rhs: *const T) -> bool {
     // cast to thin pointers to ignore the vtable part
-    std::ptr::eq(lhs, rhs)
+    lhs as *const () == rhs as *const ()
 }
