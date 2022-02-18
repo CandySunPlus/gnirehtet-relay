@@ -15,6 +15,7 @@
  */
 
 use log::*;
+use packet::Packet;
 use std::io;
 
 use super::binary;
@@ -76,6 +77,8 @@ impl Packetizer {
         let r = source.recv(&mut self.buffer[self.payload_index..])?;
         debug!(target: "PACK", "payload index {}, length {}, raw: {}", self.payload_index, r, binary::build_packet_string(&self.buffer[self.payload_index..]));
         let ipv4_packet = self.build(r as u16);
+        let p = packet::ip::Packet::unchecked(ipv4_packet.raw());
+        debug!(target: "PACKED", "{:?}, {}", p, binary::build_packet_string(p.payload()));
         Ok(ipv4_packet)
     }
 
@@ -94,6 +97,8 @@ impl Packetizer {
         debug!(target: "PACK", "payload index {}, length {}, raw: {}", self.payload_index, r, binary::build_packet_string(&self.buffer[self.payload_index..]));
         let option = if r > 0 {
             let ipv4_packet = self.build(r as u16);
+            let p = packet::ip::Packet::unchecked(ipv4_packet.raw());
+            debug!(target: "PACKED", "{:?}, {}", p, binary::build_packet_string(p.payload()));
             Some(ipv4_packet)
         } else {
             None

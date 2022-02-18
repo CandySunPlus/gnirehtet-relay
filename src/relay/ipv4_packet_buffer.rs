@@ -20,6 +20,7 @@ use super::ipv4_header;
 use super::ipv4_packet::{Ipv4Packet, MAX_PACKET_LENGTH};
 
 use log::*;
+
 use std::io;
 
 pub struct Ipv4PacketBuffer {
@@ -40,6 +41,7 @@ impl Ipv4PacketBuffer {
     fn available_packet_length(&self) -> Option<u16> {
         let data = self.buf.peek();
         trace!("Parse packet: {}", binary::build_packet_string(data));
+
         if let Some((version, length)) = ipv4_header::peek_version_length(data) {
             assert!(version == 4, "Not an Ipv4 packet, version={}", version);
             if length as usize <= data.len() {
@@ -58,7 +60,10 @@ impl Ipv4PacketBuffer {
     pub fn as_ipv4_packet(&mut self) -> Option<Ipv4Packet> {
         if self.available_packet_length().is_some() {
             let data = self.buf.peek_mut();
-            Some(Ipv4Packet::parse(data))
+            let ip_packet = Ipv4Packet::parse(data);
+            let p = packet::ip::Packet::new(ip_packet.raw()).unwrap();
+            trace!("packet: {:?}, {:?}", p, ip_packet.payload());
+            Some(ip_packet)
         } else {
             None
         }
