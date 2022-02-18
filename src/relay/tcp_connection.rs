@@ -730,25 +730,34 @@ impl TcpConnection {
 
     fn update_interests(&mut self, selector: &mut Selector) {
         assert!(!self.closed);
-        let mut interests = self.interests;
+        let mut interests = None;
         if self.tcb.state == TcpState::SynSent {
             // waiting for connectable
-            interests = Interest::WRITABLE
+            interests = Some(Interest::WRITABLE)
         } else {
-            if self.may_read() {
-                interests.add(Interest::READABLE);
-            }
-            if self.may_write() {
-                interests.add(Interest::WRITABLE);
-            }
+            interests = match interests {
+                Some(interests) if self.may_read() => Some(interests.add(Interest::READABLE)),
+                Some(interests) if self.may_write() => Some(interests.add(Interest::WRITABLE)),
+                None if self.may_read() => Some(Interest::READABLE),
+                None if self.may_write() => Some(Interest::WRITABLE),
+                _ => None,
+            };
         }
         cx_debug!(target: TAG, self.id, "interests: {:?}", interests);
-        if self.interests != interests {
-            // interests must be changed
-            self.interests = interests;
+        if let Some(interests) = interests {
+            if self.interests != interests {
+                // interests must be changed
+                self.interests = interests;
+
+                selector
+                    .reregister(&mut self.stream, self.token, interests)
+                    .expect("Cannot register on poll");
+            }
+        } else {
+            cx_warn!(target: TAG, self.id(), "update interests is None");
             selector
-                .reregister(&mut self.stream, self.token, interests)
-                .expect("Cannot register on poll");
+                .reregister(&mut self.stream, self.token, Interest::READABLE)
+                .expect("Cannot reregister on pull");
         }
     }
 
